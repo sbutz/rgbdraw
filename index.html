@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Andis Board</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css"/>
+    </head>
+    <body>
+        <style>
+            body {
+                padding: 0;
+                margin: 0;
+            }
+            canvas {
+                border: 1px solid black;
+            }
+        </style>
+
+        <div id="color-picker"></div>
+
+        <canvas id="surface" width="640px" height="160">
+        </canvas>
+
+        <label for="is-live">Live</label>
+        <input type="checkbox" id="is-live" checked/>
+
+        <button id="clear">Clear</button>
+        <button id="publish" disabled>Publish</button>
+
+        <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.es5.min.js"></script>
+        <script>
+console.log("hi")
+
+const NUM_ROWS = 8;
+const NUM_COLS = 32;
+
+const URL = "ws://XXX"
+const USERNAME = "XXX";
+const PASSWORD = "XXX";
+
+let canvas = document.getElementById("surface");
+let ctx = canvas.getContext("2d");
+let client = mqtt.connect(URL, {
+    username: USERNAME,
+    password: PASSWORD,
+});
+let isLiveBox = document.getElementById("is-live");
+let clearBtn = document.getElementById("clear");
+let publishBtn = document.getElementById("publish")
+
+let cellWidth = canvas.width/NUM_COLS;
+let cellHeight = canvas.height/NUM_ROWS;
+let grid = [];
+for (let i = 0; i < NUM_ROWS; i++)
+    grid.push(new Array(NUM_COLS).fill("#000000"));
+let isDrawing = false;
+let color = "#AAFFAA";
+
+window.onresize = onResize;
+canvas.onmousedown = startDrawing;
+canvas.onmousemove = doDrawing;
+canvas.onmouseup = endDrawing;
+isLiveBox.onchange = function() {
+    publishBtn.disabled = isLiveBox.checked;
+};
+publishBtn.onclick = sendGrid;
+clearBtn.onclick = clearGrid;
+
+const pickr = Pickr.create({
+    el: '#color-picker',
+    theme: 'classic', // or 'monolith', or 'nano'
+
+    default: color,
+    swatches: [
+        'rgba(244, 67, 54, 1)',
+        'rgba(233, 30, 99, 0.95)',
+        'rgba(156, 39, 176, 0.9)',
+        'rgba(103, 58, 183, 0.85)',
+        'rgba(63, 81, 181, 0.8)',
+        'rgba(33, 150, 243, 0.75)',
+        'rgba(3, 169, 244, 0.7)',
+        'rgba(0, 188, 212, 0.7)',
+        'rgba(0, 150, 136, 0.75)',
+        'rgba(76, 175, 80, 0.8)',
+        'rgba(139, 195, 74, 0.85)',
+        'rgba(205, 220, 57, 0.9)',
+        'rgba(255, 235, 59, 0.95)',
+        'rgba(255, 193, 7, 1)'
+    ],
+
+    components: {
+
+        // Main components
+        preview: true,
+        opacity: true,
+        hue: true,
+
+        // Input / output Options
+        interaction: {
+            hex: true,
+            rgba: true,
+            hsla: true,
+            hsva: true,
+            cmyk: true,
+            input: true,
+            clear: true,
+            save: true
+        }
+    }
+});
+pickr.on('save', (e) => {
+    color = e.toHEXA().toString();
+})
+
+onResize();
+requestAnimationFrame(render);
+
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let row = 0; row < NUM_ROWS; row++) {
+        for (let col = 0; col < NUM_COLS; col++) {
+            renderCell(row, col, grid[row][col]);
+        }
+    }
+    requestAnimationFrame(render);
+}
+
+function renderCell(row, col, color) {
+    ctx.beginPath();
+    ctx.strokeStyle = 'grey';
+    ctx.fillStyle = color;
+    ctx.rect(col*cellWidth, row*cellHeight, cellWidth, cellHeight);
+    ctx.fill();
+    ctx.stroke();
+}
+
+function onResize(e) {
+    cellWidth = Math.floor(window.innerWidth / NUM_COLS);
+    cellHeight = cellWidth;
+    canvas.width = cellWidth * NUM_COLS;
+    canvas.height = cellHeight * NUM_ROWS;
+}
+
+function startDrawing(e) {
+    isDrawing = true;
+    colorPixel(e.clientX, e.clientY);
+}
+
+function doDrawing(e) {
+    if (isDrawing)
+        colorPixel(e.clientX, e.clientY);
+}
+
+function colorPixel(x, y) {
+    row = Math.max(0, Math.floor(y/cellHeight) - 1);
+    col = Math.max(0, Math.floor(x/cellWidth));
+    grid[row][col] = color;
+}
+
+// Asumes color in #xxxxxx format
+function colToNum(color) {
+    return parseInt("0x" + color.substring(1,7));
+}
+
+function endDrawing(e) {
+    isDrawing = false;
+    if (isLiveBox.checked)
+        sendGrid();
+}
+
+function clearGrid() {
+    for (let row = 0; row < NUM_ROWS; row++) {
+        for (let col = 0; col < NUM_COLS; col++) {
+            grid[row][col] = "#000000";
+        }
+    }
+    if (isLiveBox.checked)
+        sendGrid();
+}
+
+function sendGrid() {
+    hexValues = grid.reduce((acc, row) => {
+        return acc.concat(row.map(colToNum));
+    }, []);
+    client.publish("/matrix/text", hexValues.join(','));
+}
+        </script>
+    </body>
+</html>
